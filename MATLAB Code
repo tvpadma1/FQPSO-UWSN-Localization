@@ -1,0 +1,81 @@
+clc;
+clear;
+close all;
+
+%% 📂 Load Dataset
+data = readtable('../data/sample_dataset.csv');
+
+% Extract values
+NodeID = data.NodeID;
+X = data.X;
+Y = data.Y;
+Z = data.Z;
+Type = data.Type;
+
+% Convert type to logical
+isAnchor = strcmp(Type, 'Anchor');
+
+%% 📊 Separate Anchor and Unknown Nodes
+anchor_pos = [X(isAnchor), Y(isAnchor), Z(isAnchor)];
+unknown_pos = [X(~isAnchor), Y(~isAnchor), Z(~isAnchor)];
+
+fprintf('Total Nodes: %d\n', length(NodeID));
+fprintf('Anchor Nodes: %d\n', size(anchor_pos,1));
+fprintf('Unknown Nodes: %d\n', size(unknown_pos,1));
+
+%% 📡 Simulate Distance Measurements (ToA-based)
+num_unknown = size(unknown_pos,1);
+num_anchor = size(anchor_pos,1);
+
+dist_matrix = zeros(num_unknown, num_anchor);
+
+for i = 1:num_unknown
+    for j = 1:num_anchor
+        true_dist = norm(unknown_pos(i,:) - anchor_pos(j,:));
+        
+        % Add ToA noise (from dataset)
+        noise = data.ToA_Noise(i);
+        
+        dist_matrix(i,j) = true_dist + noise;
+    end
+end
+
+%% 🧠 Simple Localization (Least Squares Approximation)
+estimated_pos = zeros(size(unknown_pos));
+
+for i = 1:num_unknown
+    A = [];
+    b = [];
+    
+    for j = 2:num_anchor
+        x1 = anchor_pos(1,:);
+        xj = anchor_pos(j,:);
+        
+        d1 = dist_matrix(i,1);
+        dj = dist_matrix(i,j);
+        
+        A = [A; 2*(xj - x1)];
+        b = [b; d1^2 - dj^2 - norm(x1)^2 + norm(xj)^2];
+    end
+    
+    % Solve using least squares
+    estimated_pos(i,:) = (A\b)';
+end
+
+%% 📉 Compute Localization Error
+errors = sqrt(sum((estimated_pos - unknown_pos).^2, 2));
+mean_error = mean(errors);
+
+fprintf('Mean Localization Error: %.4f meters\n', mean_error);
+
+%% 📊 Plot Results
+figure;
+scatter3(anchor_pos(:,1), anchor_pos(:,2), anchor_pos(:,3), 'g', 'filled');
+hold on;
+scatter3(unknown_pos(:,1), unknown_pos(:,2), unknown_pos(:,3), 'r');
+scatter3(estimated_pos(:,1), estimated_pos(:,2), estimated_pos(:,3), 'b');
+
+legend('Anchors','True Unknown','Estimated');
+xlabel('X'); ylabel('Y'); zlabel('Z');
+title('UWSN Localization Results');
+grid on;
